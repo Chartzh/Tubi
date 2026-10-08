@@ -5,15 +5,23 @@ export default {
     extend: {
       colors: {
         tubi: {
-          bg: '#0b0d13',
-          card: '#131620',
-          elevated: '#1a1e2c',
-          border: '#212638',
-          text: '#f3f4f6',
-          muted: '#94a3b8',
+          bg: '#0b0d14',
+          card: '#131622',
+          deck: '#151926',
+          elevated: '#1a1f30',
+          border: '#23293d',
+          'border-focus': '#3b4363',
+          text: '#f1f3f9',
+          muted: '#8f98af',
           accent: '#e11d48',
-          'accent-hover': '#be123c',
+          'accent-hover': '#f43f5e',
+          cyan: '#00f0ff',
         }
+      },
+      fontFamily: {
+        display: ['"Space Grotesk"', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+        sans: ['Inter', 'sans-serif'],
       }
     },
   },
