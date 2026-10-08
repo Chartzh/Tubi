@@ -30,6 +30,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+LOCAL_BIN = os.path.expanduser("~/.local/bin")
+if os.path.exists(LOCAL_BIN) and LOCAL_BIN not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{LOCAL_BIN}:{os.environ.get('PATH', '')}"
+
 TEMP_DIR_ROOT = "/tmp/tubi_downloads"
 os.makedirs(TEMP_DIR_ROOT, exist_ok=True)
 
@@ -53,6 +57,18 @@ def format_duration(seconds: Optional[int]) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
+def format_size(size_bytes: Optional[int]) -> str:
+    if not size_bytes or size_bytes <= 0:
+        return ""
+    if size_bytes >= 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.0f} KB"
+    return f"{size_bytes} B"
+
+
 def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', "", name).strip()
     return cleaned if cleaned else "tubi_media"
@@ -66,10 +82,23 @@ def cleanup_directory(path: str):
             pass
 
 
+class SilentLogger:
+    def debug(self, msg):
+        pass
+    def info(self, msg):
+        pass
+    def warning(self, msg):
+        pass
+    def error(self, msg):
+        pass
+
+
 def extract_info_sync(url: str) -> dict:
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
+        "logger": SilentLogger(),
         "skip_download": True,
         "extract_flat": False,
         "noplaylist": True,
@@ -141,13 +170,34 @@ async def get_video_info(payload: InfoRequest):
         {"quality": "360p", "height": 360, "label": "SD Low"},
     ]
 
+    # Calculate best audio size for combined video filesize estimation
+    best_audio_size = 0
+    for f in available_formats:
+        if f.get("vcodec") == "none" and f.get("acodec") != "none":
+            sz = f.get("filesize") or f.get("filesize_approx")
+            if not sz and f.get("abr") and duration_sec:
+                sz = int((f.get("abr") * 1000 / 8) * duration_sec)
+            if sz and sz > best_audio_size:
+                best_audio_size = sz
+
     video_options = []
     for res in target_resolutions:
         if max_height >= res["height"] or not available_heights or res["height"] == 720:
+            matching = [f for f in available_formats if f.get("height") == res["height"] and f.get("vcodec") != "none"]
+            v_sz = 0
+            if matching:
+                for f in matching:
+                    sz = f.get("filesize") or f.get("filesize_approx")
+                    if not sz and f.get("tbr") and duration_sec:
+                        sz = int((f.get("tbr") * 1000 / 8) * duration_sec)
+                    if sz and sz > v_sz:
+                        v_sz = sz
+            total_est = v_sz + best_audio_size if v_sz else 0
             video_options.append({
                 "quality": res["quality"],
                 "height": res["height"],
                 "label": res["label"],
+                "filesize_formatted": format_size(total_est),
                 "ext": "mp4",
                 "type": "video"
             })
@@ -157,15 +207,27 @@ async def get_video_info(payload: InfoRequest):
             "quality": "best",
             "height": max_height or 720,
             "label": "Kualitas Terbaik",
+            "filesize_formatted": format_size(best_audio_size * 4 if best_audio_size else None),
             "ext": "mp4",
             "type": "video"
         })
 
-    audio_options = [
-        {"quality": "320k", "bitrate": "320 kbps", "label": "Kualitas Maksimal", "ext": "mp3", "type": "audio"},
-        {"quality": "192k", "bitrate": "192 kbps", "label": "Kualitas Standar", "ext": "mp3", "type": "audio"},
-        {"quality": "128k", "bitrate": "128 kbps", "label": "Hemat Kuota", "ext": "mp3", "type": "audio"},
+    audio_configs = [
+        {"quality": "320k", "kbps": 320, "bitrate": "320 kbps", "label": "Kualitas Maksimal"},
+        {"quality": "192k", "kbps": 192, "bitrate": "192 kbps", "label": "Kualitas Standar"},
+        {"quality": "128k", "kbps": 128, "bitrate": "128 kbps", "label": "Hemat Kuota"},
     ]
+    audio_options = []
+    for ac in audio_configs:
+        audio_est = int((ac["kbps"] * 1000 / 8) * duration_sec) if duration_sec else 0
+        audio_options.append({
+            "quality": ac["quality"],
+            "bitrate": ac["bitrate"],
+            "label": ac["label"],
+            "filesize_formatted": format_size(audio_est),
+            "ext": "mp3",
+            "type": "audio"
+        })
 
     return {
         "id": info.get("id"),
@@ -183,7 +245,8 @@ async def get_video_info(payload: InfoRequest):
 
 def download_media_sync(url: str, media_type: str, quality: str, out_dir: str) -> str:
     template = os.path.join(out_dir, "%(title).100s.%(ext)s")
-    has_ffmpeg = bool(shutil.which("ffmpeg"))
+    ffmpeg_path = shutil.which("ffmpeg")
+    has_ffmpeg = bool(ffmpeg_path)
 
     if media_type == "audio":
         bitrate = quality if quality in ["320k", "192k", "128k"] else "192k"
@@ -193,9 +256,12 @@ def download_media_sync(url: str, media_type: str, quality: str, out_dir: str) -
             "outtmpl": template,
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "noplaylist": True,
+            "logger": SilentLogger(),
         }
         if has_ffmpeg:
+            ydl_opts["ffmpeg_location"] = ffmpeg_path
             ydl_opts["postprocessors"] = [
                 {
                     "key": "FFmpegExtractAudio",
@@ -207,24 +273,38 @@ def download_media_sync(url: str, media_type: str, quality: str, out_dir: str) -
         height_map = {"1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
         target_h = height_map.get(quality, 720)
         if has_ffmpeg:
-            format_str = f"bestvideo[height<={target_h}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={target_h}]+bestaudio/best[height<={target_h}]/best"
+            format_str = (
+                f"bestvideo[height<={target_h}][vcodec^=avc]+bestaudio[ext=m4a]/"
+                f"bestvideo[height<={target_h}][ext=mp4]+bestaudio[ext=m4a]/"
+                f"bestvideo[height<={target_h}][vcodec^=avc]+bestaudio/"
+                f"bestvideo[height<={target_h}]+bestaudio/"
+                f"best[height<={target_h}]/best"
+            )
             ydl_opts = {
                 "format": format_str,
                 "outtmpl": template,
                 "merge_output_format": "mp4",
                 "quiet": True,
                 "no_warnings": True,
+                "noprogress": True,
                 "noplaylist": True,
-                "postprocessor_args": ["-c:a", "aac"],
+                "logger": SilentLogger(),
+                "ffmpeg_location": ffmpeg_path,
+                "postprocessor_args": {
+                    "merger": ["-c:a", "aac"],
+                    "merger+ffmpeg": ["-c:a", "aac"],
+                },
             }
         else:
-            format_str = f"best[height<={target_h}]/best/bestvideo[height<={target_h}]/bestvideo"
+            format_str = f"best[height<={target_h}]/best"
             ydl_opts = {
                 "format": format_str,
                 "outtmpl": template,
                 "quiet": True,
                 "no_warnings": True,
+                "noprogress": True,
                 "noplaylist": True,
+                "logger": SilentLogger(),
             }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -261,6 +341,11 @@ async def download_media(
             download_media_sync, url, type, quality, job_dir
         )
     except Exception as e:
+        try:
+            import traceback
+            traceback.print_exc()
+        except Exception:
+            pass
         cleanup_directory(job_dir)
         raise HTTPException(
             status_code=500,

@@ -14,6 +14,9 @@
 	let downloadingKey = null;
 	let downloadSuccessMessage = '';
 
+	$: selectedVideoQualityObj = videoData?.video_formats?.find((f) => f.quality === selectedVideoQuality);
+	$: selectedAudioQualityObj = videoData?.audio_formats?.find((f) => f.quality === selectedAudioQuality);
+
 	const youtubeRegex = /^(https?:\/\/)?(www\.|m\.|music\.)?(youtube\.com\/(watch\?.*v=|shorts\/|embed\/|v\/)|youtu\.be\/)[a-zA-Z0-9_-]{11}/;
 
 	async function handlePaste() {
@@ -149,16 +152,7 @@
 			<div class="w-8 h-8 rounded-lg bg-tubi-accent flex items-center justify-center text-white font-display font-bold text-base shadow-sm">
 				T
 			</div>
-			<div class="flex items-center gap-2">
-				<span class="font-display font-bold text-lg tracking-tight text-white">Tubi</span>
-				<span class="text-[11px] font-mono text-tubi-muted px-2 py-0.5 rounded bg-tubi-elevated border border-tubi-border">CORE V2.4</span>
-			</div>
-		</div>
-
-		<!-- Status Indicator -->
-		<div class="flex items-center gap-2 text-xs font-mono text-tubi-muted">
-			<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-			<span>Layanan Aktif</span>
+			<span class="font-display font-bold text-lg tracking-tight text-white">Tubi</span>
 		</div>
 	</div>
 </header>
@@ -394,9 +388,16 @@
 								>
 									<div class="flex items-center justify-between">
 										<span class="font-display font-bold text-base text-white">{item.quality}</span>
-										<span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-tubi-deck border border-tubi-border text-tubi-muted">
-											{item.label}
-										</span>
+										<div class="flex items-center gap-1.5">
+											{#if item.filesize_formatted}
+												<span class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-tubi-deck border border-tubi-border text-tubi-text">
+													{item.filesize_formatted}
+												</span>
+											{/if}
+											<span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-tubi-deck border border-tubi-border text-tubi-muted">
+												{item.label}
+											</span>
+										</div>
 									</div>
 									<div class="flex items-center justify-between text-xs text-tubi-muted">
 										<span>Format MP4</span>
@@ -428,7 +429,7 @@
 										<polyline points="7 10 12 15 17 10"/>
 										<line x1="12" y1="15" x2="12" y2="3"/>
 									</svg>
-									<span>Unduh Video ({selectedVideoQuality || 'MP4'})</span>
+									<span>Unduh Video ({selectedVideoQuality || 'MP4'}{#if selectedVideoQualityObj?.filesize_formatted} • {selectedVideoQualityObj.filesize_formatted}{/if})</span>
 								{/if}
 							</button>
 						</div>
@@ -446,9 +447,16 @@
 								>
 									<div class="flex items-center justify-between">
 										<span class="font-display font-bold text-base text-white">{item.bitrate}</span>
-										<span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-tubi-deck border border-tubi-border text-tubi-muted">
-											{item.label}
-										</span>
+										<div class="flex items-center gap-1.5">
+											{#if item.filesize_formatted}
+												<span class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-tubi-deck border border-tubi-border text-tubi-text">
+													{item.filesize_formatted}
+												</span>
+											{/if}
+											<span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-tubi-deck border border-tubi-border text-tubi-muted">
+												{item.label}
+											</span>
+										</div>
 									</div>
 									<div class="flex items-center justify-between text-xs text-tubi-muted">
 										<span>Format MP3</span>
@@ -480,7 +488,7 @@
 										<polyline points="7 10 12 15 17 10"/>
 										<line x1="12" y1="15" x2="12" y2="3"/>
 									</svg>
-									<span>Unduh Audio MP3 ({selectedAudioQuality})</span>
+									<span>Unduh Audio MP3 ({selectedAudioQuality}{#if selectedAudioQualityObj?.filesize_formatted} • {selectedAudioQualityObj.filesize_formatted}{/if})</span>
 								{/if}
 							</button>
 						</div>
