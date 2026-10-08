@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tubi-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: singapore
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: "*"
